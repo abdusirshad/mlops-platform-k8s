@@ -1,0 +1,35 @@
+# Optional Ingress. Requires an ingress controller (e.g. `kubectl apply -f
+# https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml` on kind).
+# Add to /etc/hosts:  127.0.0.1 mlflow.local serving.local
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mlops-ingress
+  namespace: mlops
+  labels:
+    app.kubernetes.io/part-of: mlops-platform
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: mlflow.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mlflow
+                port:
+                  number: 5000
+    - host: serving.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: serving
+                port:
+                  number: 80

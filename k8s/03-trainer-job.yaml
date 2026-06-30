@@ -1,0 +1,34 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: trainer
+  namespace: mlops
+  labels:
+    app.kubernetes.io/name: trainer
+    app.kubernetes.io/part-of: mlops-platform
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: trainer
+        app.kubernetes.io/part-of: mlops-platform
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: trainer
+          image: mlops-platform/trainer:local
+          imagePullPolicy: IfNotPresent
+          # Artifacts are uploaded through the MLflow tracking server
+          # (--serve-artifacts), so no shared volume is required.
+          envFrom:
+            - configMapRef:
+                name: mlops-config
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlops-config
+  namespace: mlops
+  labels:
+    app.kubernetes.io/part-of: mlops-platform
+data:
+  MLFLOW_TRACKING_URI: "http://mlflow:5000"
+  MLFLOW_EXPERIMENT: "iris-classifier"
+  MODEL_NAME: "iris-classifier"
+  MODEL_STAGE: "latest"
+  ACCURACY_THRESHOLD: "0.90"

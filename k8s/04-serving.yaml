@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serving
+  namespace: mlops
+  labels:
+    app.kubernetes.io/name: serving
+    app.kubernetes.io/part-of: mlops-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: serving
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: serving
+        app.kubernetes.io/part-of: mlops-platform
+    spec:
+      containers:
+        - name: serving
+          image: mlops-platform/serving:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: mlops-config
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serving
+  namespace: mlops
+  labels:
+    app.kubernetes.io/name: serving
+    app.kubernetes.io/part-of: mlops-platform
+spec:
+  selector:
+    app.kubernetes.io/name: serving
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  type: ClusterIP

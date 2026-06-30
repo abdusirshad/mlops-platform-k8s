@@ -1,0 +1,19 @@
+name: iris-classifier
+
+python_env: python_env.yaml
+
+entry_points:
+  main:
+    parameters:
+      n_estimators: {type: int, default: 200}
+      max_depth: {type: int, default: 5}
+      test_size: {type: float, default: 0.2}
+      random_state: {type: int, default: 42}
+      accuracy_threshold: {type: float, default: 0.90}
+    command: >-
+      python train.py
+      --n-estimators {n_estimators}
+      --max-depth {max_depth}
+      --test-size {test_size}
+      --random-state {random_state}
+      --accuracy-threshold {accuracy_threshold}

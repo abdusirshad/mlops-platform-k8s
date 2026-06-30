@@ -1,0 +1,69 @@
+# Local MLOps stack: MLflow tracking server, a one-shot training job, and the
+# FastAPI inference service. Bring it up with `make up` (or `docker compose up`).
+#
+#   1. mlflow   - tracking server + model registry (SQLite backend, file artifacts)
+#   2. trainer  - runs train.py once, logs+registers a model, then exits
+#   3. serving  - FastAPI service that loads the registered model and serves /predict
+#
+# A shared named volume (mlflow-data) holds the backend DB and artifacts so that
+# the serving container can resolve models:/ artifact URIs produced by training.
+
+services:
+  mlflow:
+    build:
+      context: ./mlflow
+    image: mlops-platform/mlflow:local
+    container_name: mlops-mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-data:/mlflow
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5000/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  trainer:
+    build:
+      context: ./training
+    image: mlops-platform/trainer:local
+    container_name: mlops-trainer
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT: iris-classifier
+      MODEL_NAME: iris-classifier
+      ACCURACY_THRESHOLD: "0.90"
+    volumes:
+      - mlflow-data:/mlflow
+    restart: "no"
+
+  serving:
+    build:
+      context: ./serving
+    image: mlops-platform/serving:local
+    container_name: mlops-serving
+    depends_on:
+      trainer:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_NAME: iris-classifier
+      MODEL_STAGE: latest
+    volumes:
+      - mlflow-data:/mlflow
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  mlflow-data:
