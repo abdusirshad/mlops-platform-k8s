@@ -1,0 +1,29 @@
+# Prometheus scrape config for the serving service.
+#
+# If you run the Prometheus Operator (kube-prometheus-stack), this ServiceMonitor
+# makes Prometheus discover and scrape the FastAPI /metrics endpoint. It is a CRD,
+# so `kubeconform -strict -ignore-missing-schemas` skips it (expected).
+#
+# Without the operator, a plain Prometheus can scrape the same target via the
+# pod annotations already set on the serving Deployment
+# (prometheus.io/scrape / port / path) using kubernetes_sd_configs.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: serving
+  namespace: mlops
+  labels:
+    app.kubernetes.io/name: serving
+    app.kubernetes.io/part-of: mlops-platform
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: serving
+  namespaceSelector:
+    matchNames:
+      - mlops
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

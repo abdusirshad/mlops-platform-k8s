@@ -49,6 +49,27 @@ test: ## Run the local smoke test (compose up -> predict -> assert)
 lint: ## Lint Python sources with ruff
 	python -m ruff check training serving
 
+.PHONY: metrics
+metrics: ## Curl the serving Prometheus /metrics endpoint
+	curl -s http://localhost:8000/metrics | grep -E '^serving_' | head -n 30
+
+.PHONY: monitoring-up
+monitoring-up: ## Bring up Prometheus + Grafana (compose "monitoring" profile)
+	$(COMPOSE) --profile monitoring up -d
+	@echo "Grafana:      http://localhost:3000  (admin / admin)"
+	@echo "Prometheus:   http://localhost:9090"
+
+.PHONY: monitoring-down
+monitoring-down: ## Stop the Prometheus + Grafana monitoring tier
+	$(COMPOSE) --profile monitoring stop prometheus grafana
+
+.PHONY: diagrams
+diagrams: ## Render architecture + workflow PNGs (needs Graphviz on PATH)
+	pip install -r docs/diagrams/requirements.txt
+	python docs/diagrams/architecture.py
+	python docs/diagrams/workflow.py
+	@echo "Rendered docs/diagrams/architecture.png and workflow.png"
+
 .PHONY: build-images
 build-images: ## Build all three container images
 	docker build -t $(MLFLOW_IMAGE)  ./mlflow

@@ -1,0 +1,17 @@
+# Prometheus scrape config for the MLOps serving stack.
+# Scrapes the FastAPI serving /metrics endpoint and Prometheus itself.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: iris-serving
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["serving:8000"]
+        labels:
+          service: iris-serving

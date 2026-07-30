@@ -10,3 +10,4 @@ resources:
   - 03-trainer-job.yaml
   - 04-serving.yaml
   - 05-ingress.yaml
+  - 06-servicemonitor.yaml

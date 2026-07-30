@@ -23,27 +23,39 @@ accuracy promotion gate, and immutable model-serving containers.
 
 ## Architecture
 
+![Architecture](docs/diagrams/architecture.png)
+
+<sub>Rendered from `docs/diagrams/architecture.py` (mingrammer `diagrams`) via `make diagrams`.</sub>
+
+The same topology as a GitHub-native Mermaid diagram:
+
+```mermaid
+flowchart LR
+  client([Client / recruiter])
+
+  subgraph ns["Kubernetes namespace: mlops  (or docker compose)"]
+    ingress[[nginx ingress]]
+    trainer["trainer Job\ntrain.py — RandomForest"]
+    mlflow["MLflow 3.6 server\ntracking + registry\n--serve-artifacts"]
+    store[("SQLite + artifact proxy")]
+    svc[[serving Service]]
+    serving["FastAPI serving\n/health /ready /predict /metrics"]
+    prom["Prometheus\nscrape /metrics"]
+    graf["Grafana\nmodel-serving dashboard"]
+    mlflow --- store
+    svc --> serving
+    prom -->|datasource| graf
+  end
+
+  client -->|HTTP| ingress --> svc
+  trainer -->|log + register| mlflow
+  serving -.->|models:/iris-classifier/latest| mlflow
+  prom -->|GET /metrics| serving
+  client -.->|dashboards| graf
 ```
-                    docker compose  /  kind  (kustomize)
-  ┌──────────────────────────────────────────────────────────────────┐
-  │                                                                    │
-  │   training/ (train.py)            serving/ (app.py, FastAPI)       │
-  │   ┌────────────────────┐          ┌────────────────────────────┐  │
-  │   │ sklearn RandomForest│         │ GET  /health   (liveness)   │  │
-  │   │ log params/metrics  │         │ GET  /ready    (model load) │  │
-  │   │ register model      │         │ POST /predict               │  │
-  │   │ accuracy gate (0.90)│         └─────────────┬──────────────┘  │
-  │   └─────────┬───────────┘                       │ models:/iris/.. │
-  │             │ log_model + register              │ load_model      │
-  │             ▼                                    ▼                 │
-  │        ┌──────────────────────────────────────────────────┐       │
-  │        │           MLflow Tracking Server (3.6)            │       │
-  │        │  experiments · runs · metrics · Model Registry    │       │
-  │        │  backend store: SQLite   artifacts: filesystem    │       │
-  │        │  --serve-artifacts (artifacts proxied over HTTP)  │       │
-  │        └──────────────────────────────────────────────────┘       │
-  └──────────────────────────────────────────────────────────────────┘
-```
+
+A deeper visual walkthrough — lifecycle, prediction sequence, and CI/CD flow —
+lives in [`docs/architecture.md`](docs/architecture.md).
 
 - **Training** logs parameters, metrics, and the fitted model to MLflow, then
   registers it under `iris-classifier`. A configurable **accuracy gate** makes
@@ -55,6 +67,75 @@ accuracy promotion gate, and immutable model-serving containers.
   required for the demo.
 - **Serving** loads `models:/iris-classifier/latest` from the registry on first
   request and exposes a typed `/predict` API.
+
+### MLOps lifecycle (with the promotion gate)
+
+![Workflow](docs/diagrams/workflow.png)
+
+```mermaid
+flowchart LR
+  data[("Iris data")] --> train["train.py"]
+  train --> track["MLflow tracking"]
+  track --> reg["MLflow registry\niris-classifier"]
+  reg --> gate{"accuracy gate\n>= 0.90 ?"}
+  gate -->|promote| build["build + deploy\nserving image"]
+  gate -->|reject: job fails| train
+  build --> serve["serve /predict"]
+  serve -->|/metrics| mon["Prometheus + Grafana"]
+  mon -.->|retrain trigger| train
+```
+
+---
+
+## Visual tour / What you'll see
+
+Three visual surfaces make this repo easy to review at a glance. Bring the stack
+up (`make up`), then optionally the monitoring tier (`make monitoring-up`):
+
+| What | URL | How to open it |
+|---|---|---|
+| **MLflow UI** — experiments, runs, params/metrics, **Model Registry** for `iris-classifier` | http://localhost:5000 | `make up` then open the URL |
+| **FastAPI Swagger** — try `/predict`, see `/health` `/ready` `/metrics` | http://localhost:8000/docs | `make up`, then browse; `make predict` sends a sample |
+| **Grafana dashboard** — "Iris Model Serving": request rate, p50/p95/p99 latency, error rate, prediction-class pie, model-version stat | http://localhost:3000 (admin / admin) | `make monitoring-up`, open Grafana → Dashboards → MLOps → Iris Model Serving |
+| **Prometheus** — targets + raw metrics | http://localhost:9090 | `make monitoring-up` |
+| **Raw metrics** — Prometheus exposition text | http://localhost:8000/metrics | `make metrics` |
+
+---
+
+## Observability
+
+The serving app is instrumented with `prometheus_client` and exposes
+`GET /metrics`. A Prometheus + Grafana tier (opt-in, so `make up` stays light)
+scrapes it and renders a ready-made dashboard.
+
+```bash
+make up               # core stack (mlflow + trainer + serving)
+make monitoring-up    # adds Prometheus + Grafana (compose "monitoring" profile)
+make predict          # generate some traffic
+make metrics          # curl the serving /metrics endpoint
+
+# Access URLs
+#   Grafana     -> http://localhost:3000   (admin / admin) — dashboard: MLOps / Iris Model Serving
+#   Prometheus  -> http://localhost:9090
+#   MLflow      -> http://localhost:5000
+#   Serving     -> http://localhost:8000/docs
+make monitoring-down  # stop just the observability tier
+```
+
+**Metrics exposed** (`serving_*`):
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `serving_requests_total` | counter | `method`, `endpoint`, `http_status` | HTTP requests handled |
+| `serving_request_latency_seconds` | histogram | `method`, `endpoint` | Latency → p50/p95/p99 |
+| `serving_predictions_total` | counter | `iris_class` | Predictions per predicted class |
+| `serving_model_version` | gauge | — | Loaded registry version |
+| `serving_inflight_requests` | gauge | — | In-flight requests |
+
+On Kubernetes, `k8s/06-servicemonitor.yaml` provides a Prometheus-Operator
+`ServiceMonitor`; the serving pods also carry `prometheus.io/scrape` annotations
+so a plain Prometheus can discover them. The `ServiceMonitor` is a CRD, so
+`kubeconform -strict -ignore-missing-schemas` skips it (expected).
 
 ---
 
@@ -83,7 +164,19 @@ accuracy promotion gate, and immutable model-serving containers.
 │   ├── 03-trainer-job.yaml     # Job that trains + registers once
 │   ├── 04-serving.yaml         # Deployment + Service
 │   ├── 05-ingress.yaml         # optional nginx Ingress
+│   ├── 06-servicemonitor.yaml  # Prometheus-Operator ServiceMonitor (CRD)
 │   └── kustomization.yaml
+├── monitoring/                 # observability tier (opt-in compose profile)
+│   ├── prometheus/prometheus.yml
+│   └── grafana/
+│       ├── provisioning/       # datasource + dashboard providers
+│       └── dashboards/model-serving.json
+├── docs/
+│   ├── architecture.md         # deep dive + all Mermaid diagrams
+│   └── diagrams/               # diagrams-as-code (mingrammer) + rendered PNGs
+│       ├── architecture.py     # -> architecture.png
+│       ├── workflow.py         # -> workflow.png
+│       └── requirements.txt
 ├── scripts/
 │   └── smoke_test.sh           # up -> wait -> predict -> assert
 ├── .github/workflows/ci.yml    # ruff lint + py build + docker build (no push)
@@ -176,7 +269,9 @@ MLFLOW_TRACKING_URI=http://localhost:5000 python train.py --n-estimators 300
 | Lint Python | `make lint` (`ruff check training serving`) |
 | Byte-compile | `python -m compileall training serving` |
 | Validate compose | `docker compose config` |
-| Validate manifests | `kubectl apply -k k8s/ --dry-run=client` (needs kubectl) |
+| Validate manifests | `kustomize build k8s/ | kubeconform -strict -ignore-missing-schemas` |
+| Render diagrams | `make diagrams` (needs Graphviz on PATH) |
+| Bring up monitoring | `make monitoring-up` (Grafana :3000, Prometheus :9090) |
 | Full local E2E | `make test` |
 | CI (GitHub Actions) | lint + build + import-check + `docker build` for all 3 images, no push |
 

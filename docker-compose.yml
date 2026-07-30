@@ -65,5 +65,40 @@ services:
       retries: 5
       start_period: 20s
 
+  # --- Optional observability tier (opt in with: --profile monitoring) -------
+  # Kept out of the default `make up` so the core stack stays light. Bring it
+  # up with `make monitoring-up` (docker compose --profile monitoring up -d).
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: mlops-prometheus
+    profiles: ["monitoring"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: mlops-grafana
+    profiles: ["monitoring"]
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+
 volumes:
   mlflow-data:
+  prometheus-data:
+  grafana-data:
